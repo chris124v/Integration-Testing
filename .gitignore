@@ -1,0 +1,7 @@
+data/
+__pycache__/
+.venv/
+.pytest_cache/
+pruebas/reporte/
+pruebas/test-results/
+docker-logs.txt

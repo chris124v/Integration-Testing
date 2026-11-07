@@ -1,0 +1,65 @@
+name: Pruebas de integracion
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  estrechas:
+    name: Integracion estrecha (Pedidos con doble de Pagos)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r pedidos/requirements.txt -r pedidos/requirements-dev.txt
+      - run: pytest pedidos/tests -v
+
+  amplias:
+    name: Integracion amplia (3 contenedores + Playwright)
+    needs: estrechas
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Base SQLite nueva
+        run: rm -rf data && mkdir data
+
+      - name: Levantar Pagos, Pedidos y Frontend y esperar a que respondan
+        run: docker compose up -d --build --wait --wait-timeout 120
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar Playwright
+        run: |
+          pip install -r pruebas/requirements.txt
+          playwright install --with-deps chromium
+
+      - name: Ejecutar pruebas
+        working-directory: pruebas
+        env:
+          DB_PATH: ${{ github.workspace }}/data/pedidos.db
+        run: pytest
+
+      - name: Guardar logs de los contenedores
+        if: always()
+        run: docker compose logs --no-color > docker-logs.txt
+
+      - name: Publicar reporte HTML, capturas y videos (siempre, incluso si falla)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reporte-playwright
+          path: |
+            pruebas/reporte/
+            pruebas/test-results/
+            docker-logs.txt
+          retention-days: 14
+
+      - name: Apagar contenedores
+        if: always()
+        run: docker compose down -v

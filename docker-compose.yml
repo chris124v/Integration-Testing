@@ -1,0 +1,32 @@
+# Levanta los tres contenedores del taller: pagos, pedidos y frontend.
+#   docker compose up --build
+# Frontend: http://localhost:8080 | Pedidos: http://localhost:8000 | Pagos: http://localhost:8001
+services:
+  pagos:
+    build: ./pagos
+    ports:
+      - "8001:8001"
+
+  pedidos:
+    build: ./pedidos
+    ports:
+      - "8000:8000"
+    environment:
+      PAGOS_URL: http://pagos:8001      # URL de Pagos como variable de entorno
+      DB_PATH: /data/pedidos.db
+      RESET_DB: "true"                  # base SQLite nueva en cada arranque
+    volumes:
+      - ./data:/data                    # las pruebas leen la base desde ./data/pedidos.db
+    depends_on:
+      pagos:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "8080:80"
+    environment:
+      PEDIDOS_URL: http://pedidos:8000
+    depends_on:
+      pedidos:
+        condition: service_healthy

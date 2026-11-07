@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tienda Mínima</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header>
+    <h1>Tienda Mínima</h1>
+    <button id="btn-crear" data-testid="btn-crear-pedido">Crear pedido</button>
+  </header>
+
+  <main>
+    <p id="mensaje" data-testid="mensaje" role="status" hidden></p>
+    <table data-testid="tabla-pedidos">
+      <thead>
+        <tr><th>#</th><th>Usuario</th><th>Costo</th><th>Estado del pago</th><th>Detalle</th><th>Fecha</th></tr>
+      </thead>
+      <tbody id="cuerpo-pedidos"></tbody>
+    </table>
+    <p id="vacio" data-testid="sin-pedidos">Todavía no hay pedidos.</p>
+  </main>
+
+  <dialog id="dialogo" data-testid="dialogo-pedido">
+    <form id="form-pedido" method="dialog">
+      <h2>Nuevo pedido</h2>
+      <label>Nombre de usuario
+        <input name="usuario" data-testid="input-usuario" required maxlength="80">
+      </label>
+      <label>Costo
+        <input name="costo" data-testid="input-costo" type="number" min="1" step="0.01" required>
+      </label>
+      <label>Tarjeta (4 dígitos)
+        <input name="tarjeta" data-testid="input-tarjeta" pattern="\d{4}" inputmode="numeric" required>
+      </label>
+      <menu>
+        <button type="button" id="btn-cancelar">Cancelar</button>
+        <button type="submit" data-testid="btn-enviar">Pagar y crear</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>
