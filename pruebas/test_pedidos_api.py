@@ -1,28 +1,42 @@
-"""Pedidos + Pagos + SQLite reales, sin interfaz grafica."""
+"""Pedidos + Pagos + SQLite reales, sin interfaz grafica.
+
+Aquí no hay dobles: Pedidos llama al Pagos real dentro de Docker y escribe en la
+base real. Cada prueba verifica el resultado en tres lugares: la respuesta de
+Pedidos, el archivo SQLite y la consulta GET de Pedidos.
+"""
 import uuid
 
 import pytest
 
 
+# --- CP-11 a CP-13 -------------------------------------------------------------
+# Una prueba que se ejecuta 3 veces, una por tarjeta, creando un pedido en Pedidos:
+#   CP-11 5500 -> 201 y APROBADO
+#   CP-12 0000 -> 201 y RECHAZADO
+#   CP-13 9999 -> 201 y ERROR (Pagos respondió 500, pero el pedido igual se guarda)
 @pytest.mark.parametrize(
     "tarjeta, estado_esperado",
     [("5500", "APROBADO"), ("0000", "RECHAZADO"), ("9999", "ERROR")],
     ids=["aprobado", "rechazado", "error"],
 )
 def test_pedido_se_guarda_con_el_estado_del_pago(api_pedidos, consultar_bd, tarjeta, estado_esperado):
+    # Usuario único (sufijo aleatorio) para encontrar este pedido sin depender de otras pruebas.
     usuario = f"api-{estado_esperado.lower()}-{uuid.uuid4().hex[:6]}"
 
+    # 1) La respuesta de Pedidos.
     r = api_pedidos.post("/pedidos", data={"usuario": usuario, "costo": 1800, "tarjeta": tarjeta})
 
     assert r.status == 201
     pedido = r.json()
     assert pedido["estado_pago"] == estado_esperado
 
+    # 2) Lo que quedó guardado en SQLite (leído directamente del archivo).
     fila = consultar_bd("SELECT * FROM pedidos WHERE id = ?", (pedido["id"],))
     assert fila is not None, "El pedido no quedo guardado en SQLite"
     assert fila["usuario"] == usuario
     assert fila["estado_pago"] == estado_esperado
 
+    # 3) Lo que devuelve Pedidos al consultar ese pedido por su id.
     assert api_pedidos.get(f"/pedidos/{pedido['id']}").json()["estado_pago"] == estado_esperado
 
 

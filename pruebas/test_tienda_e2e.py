@@ -1,10 +1,21 @@
-"""Flujo completo desde el navegador: Frontend -> Pedidos -> Pagos -> SQLite."""
+"""Flujo completo desde el navegador: Frontend -> Pedidos -> Pagos -> SQLite.
+
+Playwright abre la tienda en Chromium, llena el formulario como lo haría un
+usuario y revisa la pantalla. Al final se consulta SQLite para confirmar que lo
+que se ve coincide con lo guardado. Estas pruebas generan capturas y video.
+"""
 import uuid
 
 import pytest
 from playwright.sync_api import expect
 
 
+# --- CP-14 a CP-16 -------------------------------------------------------------
+# Una prueba que se ejecuta 3 veces, una por tarjeta, creando el pedido desde la tienda:
+#   CP-14 5500 -> mensaje y fila con APROBADO
+#   CP-15 0000 -> mensaje y fila con RECHAZADO
+#   CP-16 9999 -> mensaje y fila con ERROR
+# En los tres casos, el pedido debe quedar en SQLite con el mismo estado.
 @pytest.mark.parametrize(
     "tarjeta, estado_esperado",
     [("5500", "APROBADO"), ("0000", "RECHAZADO"), ("9999", "ERROR")],
@@ -13,19 +24,23 @@ from playwright.sync_api import expect
 def test_crear_pedido_desde_la_tienda(page, consultar_bd, capturar, tarjeta, estado_esperado):
     usuario = f"ui-{estado_esperado.lower()}-{uuid.uuid4().hex[:6]}"
 
+    # Abrir la tienda, pulsar «Crear pedido» y llenar el formulario.
+    # Los elementos se buscan por su atributo data-testid (ver frontend/public/index.html).
     page.goto("/")
     page.get_by_test_id("btn-crear-pedido").click()
     page.get_by_test_id("input-usuario").fill(usuario)
     page.get_by_test_id("input-costo").fill("2500")
     page.get_by_test_id("input-tarjeta").fill(tarjeta)
-    capturar("formulario")
+    capturar("formulario")  # foto antes de enviar
     page.get_by_test_id("btn-enviar").click()
 
+    # expect(...) espera a que la página se actualice; no hace falta poner pausas.
     expect(page.get_by_test_id("mensaje")).to_contain_text(estado_esperado)
-    fila = page.get_by_role("row").filter(has_text=usuario)
+    fila = page.get_by_role("row").filter(has_text=usuario)  # la fila de la tabla de este pedido
     expect(fila.get_by_test_id("estado-pago")).to_have_text(estado_esperado)
-    capturar("resultado")
+    capturar("resultado")  # foto con el resultado
 
+    # Lo que se ve en pantalla debe coincidir con lo guardado en SQLite.
     registro = consultar_bd("SELECT * FROM pedidos WHERE usuario = ?", (usuario,))
     assert registro is not None, "El pedido no quedo guardado en SQLite"
     assert registro["estado_pago"] == estado_esperado

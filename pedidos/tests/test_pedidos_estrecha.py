@@ -10,10 +10,18 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-import app as pedidos_app
+import app as pedidos_app  # el servicio Pedidos (pedidos/app.py); conftest.py lo deja importable
 
+
+# --- Herramientas de apoyo ---------------------------------------------------
 
 def doble_de_pagos(respuesta_o_excepcion):
+    """Crea un DOBLE DE PRUEBA de Pagos: un cliente HTTP que no sale a la red.
+
+    Cada vez que Pedidos llama a Pagos, el doble devuelve la respuesta indicada
+    (por ejemplo, un 200 con APROBADO o un 500) o lanza la excepción indicada
+    (por ejemplo, ConnectError para simular que Pagos está caído).
+    """
     def manejador(request: httpx.Request) -> httpx.Response:
         if isinstance(respuesta_o_excepcion, Exception):
             raise respuesta_o_excepcion
@@ -23,6 +31,10 @@ def doble_de_pagos(respuesta_o_excepcion):
 
 @pytest.fixture
 def cliente(tmp_path, monkeypatch):
+    """Arranca Pedidos en memoria (sin Docker) con una base SQLite temporal y vacía.
+
+    Cada prueba recibe su propia base, así ninguna depende de los datos de otra.
+    """
     monkeypatch.setenv("DB_PATH", str(tmp_path / "pedidos.db"))
     monkeypatch.setenv("RESET_DB", "true")
     with TestClient(pedidos_app.app) as c:
@@ -30,10 +42,21 @@ def cliente(tmp_path, monkeypatch):
 
 
 def estado_en_base(cliente, pedido_id):
+    """Lee directamente de SQLite el estado_pago guardado para un pedido."""
     with sqlite3.connect(cliente.app.state.db_path) as conn:
         return conn.execute("SELECT estado_pago FROM pedidos WHERE id = ?", (pedido_id,)).fetchone()[0]
 
 
+# --- CP-01 a CP-05 -------------------------------------------------------------
+# Una sola prueba que se ejecuta 5 veces (parametrize), una por cada respuesta
+# posible de Pagos. En todos los casos Pedidos debe responder 201 y guardar el
+# pedido; lo único que cambia es el estado del pago:
+#   CP-01 aprobado      -> Pagos responde 200 con APROBADO      -> APROBADO
+#   CP-02 rechazado     -> Pagos responde 200 con RECHAZADO     -> RECHAZADO (un "no" de negocio, no un error)
+#   CP-03 pagos-500     -> Pagos responde 500                   -> ERROR
+#   CP-04 pagos-caido   -> no hay conexión con Pagos            -> ERROR
+#   CP-05 pagos-timeout -> Pagos no responde a tiempo           -> ERROR
+# CP-04 y CP-05 son difíciles de provocar con el servicio real; con el doble son triviales.
 @pytest.mark.parametrize(
     "respuesta_pagos, estado_esperado",
     [
@@ -46,20 +69,25 @@ def estado_en_base(cliente, pedido_id):
     ids=["aprobado", "rechazado", "pagos-500", "pagos-caido", "pagos-timeout"],
 )
 def test_pedido_guarda_el_estado_del_pago(cliente, respuesta_pagos, estado_esperado):
+    # Reemplaza el cliente real de Pagos por el doble con la respuesta de este caso.
     cliente.app.state.pagos = doble_de_pagos(respuesta_pagos)
 
     r = cliente.post("/pedidos", json={"usuario": "Ana", "costo": 1500, "tarjeta": "1234"})
 
-    assert r.status_code == 201
-    assert r.json()["estado_pago"] == estado_esperado
-    assert estado_en_base(cliente, r.json()["id"]) == estado_esperado
+    assert r.status_code == 201                                          # el pedido siempre se crea
+    assert r.json()["estado_pago"] == estado_esperado                    # la respuesta trae el estado correcto
+    assert estado_en_base(cliente, r.json()["id"]) == estado_esperado    # y quedó igual en SQLite
 
 
+# --- CP-06 ----------------------------------------------------------------------
+# Datos inválidos (usuario vacío, costo negativo, tarjeta de 2 dígitos): Pedidos
+# debe rechazarlos con 422 ANTES de cobrar. El doble anota cada llamada que
+# recibe, y al final la lista debe estar vacía: Pagos nunca fue llamado.
 def test_datos_invalidos_no_llegan_a_pagos(cliente):
     llamadas = []
 
     def manejador(request):
-        llamadas.append(request)
+        llamadas.append(request)  # registra la llamada (no debería ocurrir)
         return httpx.Response(200, json={"estado": "APROBADO"})
 
     cliente.app.state.pagos = httpx.Client(base_url="http://x", transport=httpx.MockTransport(manejador))
