@@ -102,4 +102,4 @@ Salida esperada: `6 passed` y `10 passed`.
 
 - Cambie en `pagos/app.py` el código 500 por 503 → falla solo `test_pagos_api.py::...[error-500]` (el contrato de Pagos cambió), pero las pruebas de Pedidos y de la tienda siguen pasando porque Pedidos trata cualquier 5xx como `ERROR`.
 - Cambie en `pedidos/app.py` el estado `"ERROR"` por `"FALLIDO"` → fallan la estrecha y las amplias; el reporte muestra la diferencia y queda la traza.
-- Cambie `PAGOS_URL` en `docker-compose.yml` a un puerto incorrecto → todos los pedidos quedan en `ERROR` y fallan los casos aprobado y rechazado.
+- Cambie `PAGOS_URL` en `docker-compose.yml` a un puerto incorrecto → todos los pedidos quedan en `ERROR` y fallan los casos aprobado y rechazado
