@@ -1,4 +1,7 @@
-"""Pedidos + Pagos + SQLite reales, sin interfaz grafica."""
+"""SOLUCIÓN de referencia de pruebas/test_pedidos_api.py (CP-11 a CP-13 + práctica CP-25 a CP-28).
+
+Pedidos + Pagos + SQLite reales, sin interfaz grafica.
+"""
 import uuid
 
 import pytest
@@ -27,42 +30,57 @@ def test_pedido_se_guarda_con_el_estado_del_pago(api_pedidos, consultar_bd, tarj
 
 
 # ---------------------------------------------------------------------------
-# PRÁCTICA (CP-25 a CP-28). Reemplace cada pytest.skip por la prueba.
-# Use como guía la prueba de arriba (api_pedidos y consultar_bd).
+# PRÁCTICA (CP-25 a CP-28), resuelta.
 # ---------------------------------------------------------------------------
 
-def test_cp25_el_detalle_se_guarda_igual(api_pedidos, consultar_bd):
-    """CP-25 (fácil). Con las tarjetas 5500, 0000 y 9999 (recorridas dentro de la prueba).
+def nuevo_usuario(prefijo):
+    return f"{prefijo}-{uuid.uuid4().hex[:6]}"
 
-    Esperado: el "detalle" de la respuesta es igual al de SQLite, y vale:
-    5500 -> empieza con "Autorización "; 0000 -> "Fondos insuficientes";
-    9999 -> "Pagos respondió HTTP 500".
-    """
-    pytest.skip("Ejercicio CP-25 pendiente")
+
+def test_cp25_el_detalle_se_guarda_igual(api_pedidos, consultar_bd):
+    casos = {
+        "5500": lambda d: d.startswith("Autorización "),
+        "0000": lambda d: d == "Fondos insuficientes",
+        "9999": lambda d: d == "Pagos respondió HTTP 500",
+    }
+    for tarjeta, detalle_correcto in casos.items():
+        r = api_pedidos.post("/pedidos", data={"usuario": nuevo_usuario("det"), "costo": 1000, "tarjeta": tarjeta})
+        assert r.status == 201
+        pedido = r.json()
+
+        fila = consultar_bd("SELECT * FROM pedidos WHERE id = ?", (pedido["id"],))
+        assert fila["detalle"] == pedido["detalle"]
+        assert detalle_correcto(pedido["detalle"]), f"{tarjeta}: detalle inesperado {pedido['detalle']!r}"
 
 
 def test_cp26_el_costo_con_decimales_llega_intacto(api_pedidos, consultar_bd):
-    """CP-26 (fácil). Cree un pedido con costo 2500.75.
+    r = api_pedidos.post("/pedidos", data={"usuario": nuevo_usuario("dec"), "costo": 2500.75, "tarjeta": "5500"})
 
-    Esperado: 2500.75 en la respuesta, en GET /pedidos/{id} y en SQLite
-    (sin redondeo ni conversión a entero).
-    """
-    pytest.skip("Ejercicio CP-26 pendiente")
+    assert r.status == 201
+    pedido = r.json()
+    assert pedido["costo"] == 2500.75
+    assert api_pedidos.get(f"/pedidos/{pedido['id']}").json()["costo"] == 2500.75
+    assert consultar_bd("SELECT costo FROM pedidos WHERE id = ?", (pedido["id"],))["costo"] == 2500.75
 
 
 def test_cp27_datos_invalidos_no_se_guardan(api_pedidos, consultar_bd):
-    """CP-27 (fácil). Envíe un pedido con costo 0 y otro con tarjeta "12", cada uno con un usuario único.
+    for costo, tarjeta in ((0, "5500"), (1000, "12")):
+        usuario = nuevo_usuario("inv")
+        r = api_pedidos.post("/pedidos", data={"usuario": usuario, "costo": costo, "tarjeta": tarjeta})
 
-    Esperado: HTTP 422 en ambos y ningún registro en SQLite para esos usuarios.
-    """
-    pytest.skip("Ejercicio CP-27 pendiente")
+        assert r.status == 422
+        assert consultar_bd("SELECT * FROM pedidos WHERE usuario = ?", (usuario,)) is None
 
 
 def test_cp28_el_listado_trae_lo_mas_reciente_primero(api_pedidos):
-    """CP-28 (medio). Cree dos pedidos seguidos y luego llame a GET /pedidos.
+    ids = []
+    for _ in range(2):
+        r = api_pedidos.post("/pedidos", data={"usuario": nuevo_usuario("orden"), "costo": 1000, "tarjeta": "5500"})
+        ids.append(r.json()["id"])
 
-    Esperado: HTTP 200, aparecen ambos y el segundo creado va antes que el primero.
-    Ojo: la base ya tiene pedidos de otras pruebas; compare posiciones relativas,
-    no el tamaño de la lista.
-    """
-    pytest.skip("Ejercicio CP-28 pendiente")
+    r = api_pedidos.get("/pedidos")
+    assert r.status == 200
+    listado = [p["id"] for p in r.json()]
+
+    assert ids[0] in listado and ids[1] in listado
+    assert listado.index(ids[1]) < listado.index(ids[0])

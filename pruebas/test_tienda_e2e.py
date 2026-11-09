@@ -1,4 +1,7 @@
-"""Flujo completo desde el navegador: Frontend -> Pedidos -> Pagos -> SQLite."""
+"""SOLUCIÓN de referencia de pruebas/test_tienda_e2e.py (CP-14 a CP-16 + práctica CP-29 a CP-32).
+
+Flujo completo desde el navegador: Frontend -> Pedidos -> Pagos -> SQLite.
+"""
 import uuid
 
 import pytest
@@ -33,42 +36,61 @@ def test_crear_pedido_desde_la_tienda(page, consultar_bd, capturar, tarjeta, est
 
 
 # ---------------------------------------------------------------------------
-# PRÁCTICA (CP-29 a CP-32). Reemplace cada pytest.skip por la prueba.
-# Use como guía la prueba de arriba (page, consultar_bd y capturar).
+# PRÁCTICA (CP-29 a CP-32), resuelta.
 # ---------------------------------------------------------------------------
 
-def test_cp29_tarjeta_no_reconocida_desde_la_tienda(page, consultar_bd, capturar):
-    """CP-29 (fácil). Cree un pedido desde la tienda con la tarjeta 1234.
+def crear_desde_la_tienda(page, tarjeta, costo="2500"):
+    """Llena y envía el formulario; devuelve el usuario y la fila de la tabla."""
+    usuario = f"ui-{uuid.uuid4().hex[:6]}"
+    page.goto("/")
+    page.get_by_test_id("btn-crear-pedido").click()
+    page.get_by_test_id("input-usuario").fill(usuario)
+    page.get_by_test_id("input-costo").fill(costo)
+    page.get_by_test_id("input-tarjeta").fill(tarjeta)
+    page.get_by_test_id("btn-enviar").click()
+    return usuario, page.get_by_role("row").filter(has_text=usuario)
 
-    Esperado: mensaje con "RECHAZADO (Tarjeta no reconocida)", fila con
-    RECHAZADO y registro en SQLite con ese estado.
-    """
-    pytest.skip("Ejercicio CP-29 pendiente")
+
+def test_cp29_tarjeta_no_reconocida_desde_la_tienda(page, consultar_bd, capturar):
+    usuario, fila = crear_desde_la_tienda(page, "1234")
+
+    expect(page.get_by_test_id("mensaje")).to_contain_text("RECHAZADO (Tarjeta no reconocida)")
+    expect(fila.get_by_test_id("estado-pago")).to_have_text("RECHAZADO")
+    capturar("resultado")
+
+    registro = consultar_bd("SELECT * FROM pedidos WHERE usuario = ?", (usuario,))
+    assert registro is not None
+    assert registro["estado_pago"] == "RECHAZADO"
 
 
 def test_cp30_la_fila_coincide_con_la_base(page, consultar_bd):
-    """CP-30 (fácil). Cree un pedido desde la tienda y lea su fila en la tabla.
+    usuario, fila = crear_desde_la_tienda(page, "0000", costo="1234.5")
+    expect(fila.get_by_test_id("estado-pago")).to_have_text("RECHAZADO")
 
-    Esperado: la fila muestra el usuario, el costo con dos decimales, el estado
-    y el detalle, y todo coincide con el registro de SQLite.
-    """
-    pytest.skip("Ejercicio CP-30 pendiente")
+    registro = consultar_bd("SELECT * FROM pedidos WHERE usuario = ?", (usuario,))
+    celdas = fila.get_by_role("cell")
+    expect(celdas.nth(1)).to_have_text(registro["usuario"])
+    expect(celdas.nth(2)).to_have_text(f"{registro['costo']:.2f}")
+    expect(celdas.nth(3)).to_have_text(registro["estado_pago"])
+    expect(celdas.nth(4)).to_have_text(registro["detalle"])
 
 
 def test_cp31_el_pedido_sigue_al_recargar(page):
-    """CP-31 (fácil). Cree un pedido desde la tienda y recargue la página con page.reload().
+    _, fila = crear_desde_la_tienda(page, "5500")
+    expect(fila.get_by_test_id("estado-pago")).to_have_text("APROBADO")
 
-    Esperado: la fila sigue en la tabla con su estado y el texto
-    "Todavía no hay pedidos." (data-testid "sin-pedidos") está oculto.
-    """
-    pytest.skip("Ejercicio CP-31 pendiente")
+    page.reload()
+
+    expect(fila.get_by_test_id("estado-pago")).to_have_text("APROBADO")
+    expect(page.get_by_test_id("sin-pedidos")).to_be_hidden()
 
 
 def test_cp32_el_proxy_reenvia_sin_alterar(api_tienda, consultar_bd):
-    """CP-32 (medio). Use la fixture api_tienda, que habla con http://localhost:8080 (nginx).
+    usuario = f"proxy-{uuid.uuid4().hex[:6]}"
+    r = api_tienda.post("/api/pedidos", data={"usuario": usuario, "costo": 1000, "tarjeta": "5500"})
+    assert r.status == 201
+    assert r.json()["estado_pago"] == "APROBADO"
+    assert consultar_bd("SELECT * FROM pedidos WHERE usuario = ?", (usuario,)) is not None
 
-    Envíe POST /api/pedidos con tarjeta 5500 y otro con tarjeta "55".
-    Esperado: 201 con APROBADO (y registro en SQLite) y 422; el proxy no altera
-    los códigos de Pedidos.
-    """
-    pytest.skip("Ejercicio CP-32 pendiente")
+    r = api_tienda.post("/api/pedidos", data={"usuario": f"proxy-{uuid.uuid4().hex[:6]}", "costo": 1000, "tarjeta": "55"})
+    assert r.status == 422

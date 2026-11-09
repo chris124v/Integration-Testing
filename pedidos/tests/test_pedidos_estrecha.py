@@ -1,9 +1,10 @@
-"""Pruebas de integracion ESTRECHAS (Fowler, 2018) del servicio Pedidos.
+"""SOLUCIÓN de referencia de pedidos/tests/test_pedidos_estrecha.py (CP-01 a CP-06 + práctica CP-17 a CP-20).
 
+Pruebas de integracion ESTRECHAS (Fowler, 2018) del servicio Pedidos.
 Pedidos se prueba con su base SQLite real (temporal), pero el servicio Pagos se
-reemplaza por un doble de prueba (httpx.MockTransport). Asi se verifica que
-Pedidos interpreta cada respuesta posible de la pasarela sin levantarla.
+reemplaza por un doble de prueba (httpx.MockTransport).
 """
+import json
 import sqlite3
 
 import httpx
@@ -70,44 +71,61 @@ def test_datos_invalidos_no_llegan_a_pagos(cliente):
 
 
 # ---------------------------------------------------------------------------
-# PRÁCTICA (CP-17 a CP-20). Reemplace cada pytest.skip por la prueba.
-# Use como guía las pruebas de arriba: doble_de_pagos, la fixture cliente y
-# estado_en_base ya están disponibles.
+# PRÁCTICA (CP-17 a CP-20), resuelta.
 # ---------------------------------------------------------------------------
 
-def test_cp17_estado_desconocido_de_pagos(cliente):
-    """CP-17 (fácil). El doble de Pagos responde HTTP 200 con {"estado": "PENDIENTE"}.
+def crear_pedido(cliente):
+    return cliente.post("/pedidos", json={"usuario": "Ana", "costo": 1500, "tarjeta": "1234"})
 
-    Esperado: Pedidos responde 201, estado_pago = ERROR, detalle =
-    "Estado de pago desconocido", y SQLite guarda ERROR.
-    """
-    pytest.skip("Ejercicio CP-17 pendiente")
+
+def test_cp17_estado_desconocido_de_pagos(cliente):
+    cliente.app.state.pagos = doble_de_pagos(httpx.Response(200, json={"estado": "PENDIENTE"}))
+
+    r = crear_pedido(cliente)
+
+    assert r.status_code == 201
+    assert r.json()["estado_pago"] == "ERROR"
+    assert r.json()["detalle"] == "Estado de pago desconocido"
+    assert estado_en_base(cliente, r.json()["id"]) == "ERROR"
 
 
 def test_cp18_codigo_inesperado_de_pagos(cliente):
-    """CP-18 (fácil). El doble de Pagos responde HTTP 404 y luego HTTP 422.
+    for codigo in (404, 422):
+        cliente.app.state.pagos = doble_de_pagos(httpx.Response(codigo, json={"detail": "x"}))
 
-    Recorra ambos códigos dentro de la misma prueba. Esperado en cada uno:
-    201, estado_pago = ERROR y detalle = "Respuesta inesperada de Pagos: HTTP <código>".
-    """
-    pytest.skip("Ejercicio CP-18 pendiente")
+        r = crear_pedido(cliente)
+
+        assert r.status_code == 201
+        assert r.json()["estado_pago"] == "ERROR"
+        assert r.json()["detalle"] == f"Respuesta inesperada de Pagos: HTTP {codigo}"
+        assert estado_en_base(cliente, r.json()["id"]) == "ERROR"
 
 
 def test_cp19_rechazo_sin_motivo(cliente):
-    """CP-19 (fácil). El doble responde HTTP 200 con {"estado": "RECHAZADO"} sin campo "motivo".
+    cliente.app.state.pagos = doble_de_pagos(httpx.Response(200, json={"estado": "RECHAZADO"}))
 
-    Esperado: 201, estado_pago = RECHAZADO y detalle = "Rechazado por la pasarela".
-    """
-    pytest.skip("Ejercicio CP-19 pendiente")
+    r = crear_pedido(cliente)
+
+    assert r.status_code == 201
+    assert r.json()["estado_pago"] == "RECHAZADO"
+    assert r.json()["detalle"] == "Rechazado por la pasarela"
+    assert estado_en_base(cliente, r.json()["id"]) == "RECHAZADO"
 
 
 def test_cp20_solicitud_que_pedidos_envia_a_pagos(cliente):
-    """CP-20 (medio). Contrato visto desde el consumidor.
+    llamadas = []
 
-    Cree un doble que guarde cada solicitud recibida (como en
-    test_datos_invalidos_no_llegan_a_pagos) y cree un pedido con costo 1500 y tarjeta "1234".
-    Esperado: exactamente 1 llamada, método POST, ruta /pagos y cuerpo JSON
-    {"monto": 1500, "tarjeta": "1234"}.
-    Pista: el cuerpo de la solicitud está en request.content (use json.loads).
-    """
-    pytest.skip("Ejercicio CP-20 pendiente")
+    def manejador(request):
+        llamadas.append(request)
+        return httpx.Response(200, json={"estado": "APROBADO", "autorizacion": "AB12CD34"})
+
+    cliente.app.state.pagos = httpx.Client(base_url="http://x", transport=httpx.MockTransport(manejador))
+
+    r = crear_pedido(cliente)
+
+    assert r.status_code == 201
+    assert len(llamadas) == 1
+    solicitud = llamadas[0]
+    assert solicitud.method == "POST"
+    assert solicitud.url.path == "/pagos"
+    assert json.loads(solicitud.content) == {"monto": 1500, "tarjeta": "1234"}

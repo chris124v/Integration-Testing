@@ -1,45 +1,69 @@
-"""Pedidos + Pagos reales: lo que Pagos responde debe llegar bien traducido a Pedidos.
+"""SOLUCIÓN de referencia de pruebas/test_pedidos_pagos_real.py (práctica CP-21 a CP-24).
 
-PRÁCTICA (CP-21 a CP-24). Reemplace cada pytest.skip por la prueba.
-Fixtures disponibles (conftest.py): api_pagos, api_pedidos y consultar_bd.
-Use usuarios únicos (por ejemplo con uuid) para no depender de otras pruebas.
+Pedidos + Pagos reales: lo que Pagos responde debe llegar bien traducido a Pedidos.
 """
-import pytest
+import uuid
+
+
+def nuevo_usuario(prefijo):
+    return f"{prefijo}-{uuid.uuid4().hex[:6]}"
+
+
+def crear_pedido(api_pedidos, tarjeta, costo=1000):
+    r = api_pedidos.post("/pedidos", data={"usuario": nuevo_usuario("real"), "costo": costo, "tarjeta": tarjeta})
+    assert r.status == 201
+    return r.json()
 
 
 def test_cp21_cada_cobro_se_registra_por_separado(api_pedidos, consultar_bd):
-    """CP-21 (fácil). Cree dos pedidos seguidos con tarjeta 5500.
+    primero = crear_pedido(api_pedidos, "5500")
+    segundo = crear_pedido(api_pedidos, "5500")
 
-    Esperado: ids distintos, los dos guardados en SQLite con APROBADO, y dos
-    detalles "Autorización XXXXXXXX" con códigos diferentes.
-    """
-    pytest.skip("Ejercicio CP-21 pendiente")
+    assert primero["id"] != segundo["id"]
+    assert primero["detalle"] != segundo["detalle"]
+    for pedido in (primero, segundo):
+        fila = consultar_bd("SELECT * FROM pedidos WHERE id = ?", (pedido["id"],))
+        assert fila is not None
+        assert fila["estado_pago"] == "APROBADO"
+        assert fila["detalle"] == pedido["detalle"]
+        assert fila["detalle"].startswith("Autorización ")
 
 
 def test_cp22_los_tres_estados_conviven(api_pedidos):
-    """CP-22 (fácil). Cree un pedido con 5500, otro con 0000 y otro con 9999; luego GET /pedidos.
+    esperados = {}
+    for tarjeta, estado in (("5500", "APROBADO"), ("0000", "RECHAZADO"), ("9999", "ERROR")):
+        esperados[crear_pedido(api_pedidos, tarjeta)["id"]] = estado
 
-    Esperado: los tres aparecen en el listado, cada uno con su estado
-    (APROBADO, RECHAZADO y ERROR), sin mezclarse.
-    """
-    pytest.skip("Ejercicio CP-22 pendiente")
+    r = api_pedidos.get("/pedidos")
+    assert r.status == 200
+    listado = {p["id"]: p["estado_pago"] for p in r.json()}
+
+    for pedido_id, estado in esperados.items():
+        assert listado[pedido_id] == estado
 
 
 def test_cp23_un_rechazo_no_es_un_error(api_pagos, api_pedidos):
-    """CP-23 (fácil). Con las tarjetas 0000 y 9999, llame primero a Pagos directo y luego a Pedidos.
+    for tarjeta, http_pagos, estado in (("0000", 200, "RECHAZADO"), ("9999", 500, "ERROR")):
+        pagos = api_pagos.post("/pagos", data={"monto": 1000, "tarjeta": tarjeta})
+        assert pagos.status == http_pagos
 
-    Esperado: Pagos responde 200 (rechazo) y 500 (error); Pedidos responde 201
-    en ambos casos, con RECHAZADO y ERROR respectivamente.
-    """
-    pytest.skip("Ejercicio CP-23 pendiente")
+        pedido = crear_pedido(api_pedidos, tarjeta)  # verifica que Pedidos responde 201
+        assert pedido["estado_pago"] == estado
 
 
 def test_cp24_pedidos_traduce_lo_que_responde_pagos(api_pagos, api_pedidos):
-    """CP-24 (medio). Con las tarjetas 5500, 0000, 1234 y 9999: llame a Pagos directo y luego cree el pedido.
+    for tarjeta in ("5500", "0000", "1234", "9999"):
+        pagos = api_pagos.post("/pagos", data={"monto": 1000, "tarjeta": tarjeta})
+        pedido = crear_pedido(api_pedidos, tarjeta)
 
-    Esperado: el estado de Pedidos es la traducción de lo que respondió Pagos:
-      - Pagos 200 con APROBADO  -> APROBADO y detalle que empieza con "Autorización ".
-      - Pagos 200 con RECHAZADO -> RECHAZADO y detalle igual al "motivo" de Pagos.
-      - Pagos con código 5xx    -> ERROR y detalle "Pagos respondió HTTP <código>".
-    """
-    pytest.skip("Ejercicio CP-24 pendiente")
+        if pagos.status >= 500:
+            assert pedido["estado_pago"] == "ERROR"
+            assert pedido["detalle"] == f"Pagos respondió HTTP {pagos.status}"
+            continue
+
+        cuerpo = pagos.json()
+        assert pedido["estado_pago"] == cuerpo["estado"]
+        if cuerpo["estado"] == "APROBADO":
+            assert pedido["detalle"].startswith("Autorización ")
+        else:
+            assert pedido["detalle"] == cuerpo["motivo"]
