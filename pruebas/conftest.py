@@ -38,6 +38,14 @@ def api_pedidos(playwright):
     contexto.dispose()
 
 
+@pytest.fixture(scope="session")
+def api_tienda(playwright):
+    """Habla con el frontend (nginx), que reenvía /api/* a Pedidos."""
+    contexto = playwright.request.new_context(base_url=FRONTEND_URL)
+    yield contexto
+    contexto.dispose()
+
+
 @pytest.fixture
 def consultar_bd():
     """Lee directamente el archivo SQLite que escribe el contenedor de Pedidos."""

@@ -67,3 +67,47 @@ def test_datos_invalidos_no_llegan_a_pagos(cliente):
 
     assert r.status_code == 422
     assert llamadas == []
+
+
+# ---------------------------------------------------------------------------
+# PRÁCTICA (CP-17 a CP-20). Reemplace cada pytest.skip por la prueba.
+# Use como guía las pruebas de arriba: doble_de_pagos, la fixture cliente y
+# estado_en_base ya están disponibles.
+# ---------------------------------------------------------------------------
+
+def test_cp17_estado_desconocido_de_pagos(cliente):
+    """CP-17 (fácil). El doble de Pagos responde HTTP 200 con {"estado": "PENDIENTE"}.
+
+    Esperado: Pedidos responde 201, estado_pago = ERROR, detalle =
+    "Estado de pago desconocido", y SQLite guarda ERROR.
+    """
+    pytest.skip("Ejercicio CP-17 pendiente")
+
+
+def test_cp18_codigo_inesperado_de_pagos(cliente):
+    """CP-18 (fácil). El doble de Pagos responde HTTP 404 y luego HTTP 422.
+
+    Recorra ambos códigos dentro de la misma prueba. Esperado en cada uno:
+    201, estado_pago = ERROR y detalle = "Respuesta inesperada de Pagos: HTTP <código>".
+    """
+    pytest.skip("Ejercicio CP-18 pendiente")
+
+
+def test_cp19_rechazo_sin_motivo(cliente):
+    """CP-19 (fácil). El doble responde HTTP 200 con {"estado": "RECHAZADO"} sin campo "motivo".
+
+    Esperado: 201, estado_pago = RECHAZADO y detalle = "Rechazado por la pasarela".
+    """
+    pytest.skip("Ejercicio CP-19 pendiente")
+
+
+def test_cp20_solicitud_que_pedidos_envia_a_pagos(cliente):
+    """CP-20 (medio). Contrato visto desde el consumidor.
+
+    Cree un doble que guarde cada solicitud recibida (como en
+    test_datos_invalidos_no_llegan_a_pagos) y cree un pedido con costo 1500 y tarjeta "1234".
+    Esperado: exactamente 1 llamada, método POST, ruta /pagos y cuerpo JSON
+    {"monto": 1500, "tarjeta": "1234"}.
+    Pista: el cuerpo de la solicitud está en request.content (use json.loads).
+    """
+    pytest.skip("Ejercicio CP-20 pendiente")

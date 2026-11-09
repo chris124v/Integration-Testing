@@ -16,90 +16,118 @@ Navegador ──► frontend (nginx, :8080) ──/api──► pedidos (FastAPI
 ## Estructura
 
 ```
-Src/
+Integration-Testing/
 ├── docker-compose.yml               # levanta pagos, pedidos y frontend
 ├── .github/workflows/pruebas-integracion.yml
 ├── pagos/        app.py, Dockerfile, requirements.txt
 ├── pedidos/      app.py, Dockerfile, requirements*.txt
-│   └── tests/    test_pedidos_estrecha.py   # integración ESTRECHA (Pagos reemplazado por un doble)
+│   └── tests/    conftest.py, test_pedidos_estrecha.py   # estrecha: Pagos reemplazado por un doble
 ├── frontend/     Dockerfile, templates/default.conf.template, public/ (index.html, app.js, styles.css)
-└── pruebas/      pytest.ini, conftest.py, requirements.txt
-    ├── test_pagos_api.py      # Pagos real, aislado
-    ├── test_pedidos_api.py    # Pedidos + Pagos + SQLite reales
-    └── test_tienda_e2e.py     # Playwright: navegador + 3 contenedores + SQLite
+├── pruebas/      pytest.ini, conftest.py, requirements.txt
+│   ├── test_pagos_api.py            # Pagos aislado (contrato)
+│   ├── test_pedidos_pagos_real.py   # Pedidos + Pagos reales
+│   ├── test_pedidos_api.py          # Pedidos + Pagos + SQLite
+│   └── test_tienda_e2e.py           # Playwright: navegador + 3 contenedores
+└── soluciones/   (solo en el repositorio del equipo; no se incluye en el .zip del taller)
+    ├── README.md                            # cómo usarlas y fallos provocados
+    ├── test_pedidos_estrecha_solucion.py    # CP-17 a CP-20
+    ├── test_pedidos_pagos_real_solucion.py  # CP-21 a CP-24
+    ├── test_pedidos_api_solucion.py         # CP-25 a CP-28
+    └── test_tienda_e2e_solucion.py          # CP-29 a CP-32
 ```
 
 ## Resultados esperados
 
-| Tarjeta | Respuesta de Pagos | `estado_pago` en Pedidos y SQLite | Mensaje en la tienda | Detalle guardado |
-|---|---|---|---|---|
-| `5500` | HTTP 200 `{"estado":"APROBADO","autorizacion":"XXXXXXXX"}` | `APROBADO` (verde) | «Pedido #N creado: pago APROBADO» | `Autorización XXXXXXXX` |
-| `0000` | HTTP 200 `{"estado":"RECHAZADO","motivo":"Fondos insuficientes"}` | `RECHAZADO` (naranja) | «… pago RECHAZADO (Fondos insuficientes)» | `Fondos insuficientes` |
-| `9999` | HTTP 500 `{"detail":"Error interno de la pasarela"}` | `ERROR` (rojo) | «… ERROR al procesar el pago (Pagos respondió HTTP 500)» | `Pagos respondió HTTP 500` |
-| otra de 4 dígitos | HTTP 200 `RECHAZADO` | `RECHAZADO` | «… (Tarjeta no reconocida)» | `Tarjeta no reconocida` |
-| formato inválido (`55`, letras) | HTTP 422 | no se crea el pedido | «No se pudo crear el pedido: HTTP 422» | — |
-| Pagos caído o sin responder | sin respuesta / timeout | `ERROR` | «… ERROR … (Pagos no disponible: …)» | `Pagos no disponible: ConnectError` |
+| Tarjeta | Respuesta de Pagos | `estado_pago` en Pedidos y SQLite | Mensaje en la tienda |
+|---|---|---|---|
+| `5500` | HTTP 200, `APROBADO` y código de autorización | `APROBADO` (verde) | «Pedido #N creado: pago APROBADO» |
+| `0000` | HTTP 200, `RECHAZADO`, motivo «Fondos insuficientes» | `RECHAZADO` (naranja) | «… pago RECHAZADO (Fondos insuficientes)» |
+| `9999` | HTTP 500, «Error interno de la pasarela» | `ERROR` (rojo) | «… ERROR al procesar el pago (Pagos respondió HTTP 500)» |
+| otra de 4 dígitos (ej. `1234`) | HTTP 200, `RECHAZADO`, motivo «Tarjeta no reconocida» | `RECHAZADO` | «… pago RECHAZADO (Tarjeta no reconocida)» |
+| formato inválido (`55`, costo 0) | no se llama a Pagos; Pedidos responde 422 | no se guarda | «No se pudo crear el pedido: HTTP 422» |
+| Pagos caído o sin responder | sin respuesta o tiempo agotado | `ERROR` | «… ERROR … (Pagos no disponible: …)» |
 
-En los tres casos principales **Pedidos responde 201 y el pedido siempre se guarda**: lo que cambia es el estado del pago. Un rechazo no es un error técnico (Pagos respondió bien, con un «no»); un error 500 sí lo es.
+Todo pedido **válido** se guarda y Pedidos responde 201: lo que cambia es el estado del pago. Un rechazo no es un error técnico (Pagos respondió bien, con un «no»); un 500 sí lo es.
 
-## Ejecutar en local
+## Casos de prueba
 
-Requisitos: Docker con Compose v2 y Python 3.12.
+- **CP-01 a CP-16** vienen resueltos.
+- **CP-17 a CP-32** son la práctica: 4 ejercicios al final de cada archivo (3 fáciles y 1 medio), cada uno con su enunciado en el docstring y un `pytest.skip` que se reemplaza por la prueba.
 
-```bash
-cd Src
-docker compose up --build            # o con -d --wait para dejarlo en segundo plano
-```
+| Archivo | Resueltos | Práctica |
+|---|---|---|
+| `pedidos/tests/test_pedidos_estrecha.py` | CP-01 a CP-06 | CP-17 a CP-20 |
+| `pruebas/test_pagos_api.py` | CP-07 a CP-10 | — |
+| `pruebas/test_pedidos_pagos_real.py` | — | CP-21 a CP-24 |
+| `pruebas/test_pedidos_api.py` | CP-11 a CP-13 | CP-25 a CP-28 |
+| `pruebas/test_tienda_e2e.py` | CP-14 a CP-16 | CP-29 a CP-32 |
 
-- Tienda: http://localhost:8080
-- Documentación interactiva de Pedidos: http://localhost:8000/docs
-- Documentación interactiva de Pagos: http://localhost:8001/docs
+## Pasos del taller
 
-Cada arranque de `pedidos` borra y crea `data/pedidos.db` (`RESET_DB=true`), así no quedan datos de corridas anteriores.
+Requisitos: Docker con Compose v2, Python 3.12, Git, un navegador y una cuenta de GitHub. Los comandos son para PowerShell (Windows); en Linux/Mac el entorno se activa con `source .venv/bin/activate`.
 
-### Pruebas
+**1. Preparar el ambiente.** Descomprimir el .zip del taller y abrir una terminal en la carpeta `Integration-Testing`.
 
-```bash
-python -m venv .venv && source .venv/bin/activate
+**2. Levantar el sistema y preparar Python.**
+```powershell
+docker compose up -d --build --wait     # los 3 contenedores deben quedar "healthy"
+docker compose ps
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1            # si PowerShell lo bloquea: Set-ExecutionPolicy -Scope Process Bypass
 pip install -r pedidos/requirements.txt -r pedidos/requirements-dev.txt -r pruebas/requirements.txt
 playwright install chromium
-
-pytest pedidos/tests            # 6 pruebas estrechas, no necesitan Docker
-cd pruebas && pytest            # 10 pruebas amplias, necesitan los 3 contenedores arriba
 ```
 
-Salida esperada: `6 passed` y `10 passed`.
+**3. Explorar manualmente.** Abrir http://localhost:8080 y crear un pedido con 5500, 0000, 9999 y 1234. Revisar http://localhost:8000/docs y http://localhost:8001/docs.
 
-## Dónde ver el reporte, las capturas y los videos
+**4. Ejecutar las pruebas existentes.**
+```powershell
+pytest pedidos/tests     # 6 passed, 4 skipped
+cd pruebas
+pytest                   # 10 passed, 12 skipped
+cd ..
+```
 
-| Qué | Dónde (local, dentro de `pruebas/`) |
+**5. Revisar la evidencia.**
+```powershell
+start pruebas\reporte\index.html
+start pruebas\reporte\capturas
+start pruebas\test-results
+```
+
+| Qué | Dónde (dentro de `pruebas/`) |
 |---|---|
-| Reporte HTML (abrir en el navegador) | `reporte/index.html` — cada prueba de la tienda trae incrustadas las capturas «formulario» y «resultado» |
-| Capturas tomadas por las pruebas | `reporte/capturas/<prueba>-formulario.png` y `-resultado.png` |
-| Captura final automática de Playwright | `test-results/<prueba>/test-finished-1.png` |
-| Video de cada prueba de la tienda | `test-results/<prueba>/video.webm` |
-| Traza de Playwright (solo si la prueba falla) | `test-results/<prueba>/trace.zip` → abrir con `playwright show-trace trace.zip` o en https://trace.playwright.dev |
+| Reporte HTML | `reporte/index.html`, con las capturas «formulario» y «resultado» incrustadas |
+| Capturas de las pruebas de interfaz | `reporte/capturas/` |
+| Captura final y video de cada prueba con navegador | `test-results/<prueba>/test-finished-1.png` y `video.webm` |
+| Traza (solo si la prueba falla) | `test-results/<prueba>/trace.zip` → `playwright show-trace trace.zip` o https://trace.playwright.dev |
 
-## Subirlo a GitHub y correrlo en GitHub Actions
+**6. Verificar la base de datos.**
+```powershell
+python -c "import sqlite3; [print(r) for r in sqlite3.connect('data/pedidos.db').execute('select * from pedidos')]"
+```
+La base se borra y se crea vacía cada vez que arranca el contenedor de Pedidos.
 
-1. Cree un repositorio vacío en GitHub.
-2. Suba **el contenido de `Src/` como raíz del repositorio** (el workflow debe quedar en `.github/workflows/` de la raíz):
-   ```bash
-   cd Src
-   git init -b main
-   git add .
-   git commit -m "Taller de pruebas de integración"
-   git remote add origin https://github.com/<usuario>/<repositorio>.git
-   git push -u origin main
-   ```
-3. El `push` dispara el workflow «Pruebas de integracion». También se puede lanzar a mano en la pestaña **Actions → Pruebas de integracion → Run workflow**.
-4. Lo que se espera ver en Actions:
-   - Trabajo **estrechas**: instala Pedidos y corre `pedidos/tests` (6 pruebas).
-   - Trabajo **amplias** (solo si el anterior pasó): crea una carpeta `data` vacía, levanta los 3 contenedores y espera a que estén sanos, instala Playwright, corre las 10 pruebas, guarda los logs y publica el artefacto.
-5. Para descargar la evidencia: abra la ejecución → sección **Artifacts** al final → `reporte-playwright` (zip con `pruebas/reporte/`, `pruebas/test-results/` y `docker-logs.txt`). El artefacto se publica **siempre**, también cuando una prueba falla (`if: always()`); es justamente en el fallo cuando más sirve.
+**7. Resolver la práctica.** Resolver los ejercicios de cada archivo en este orden: `test_pedidos_estrecha.py`, `test_pedidos_pagos_real.py`, `test_pedidos_api.py` y `test_tienda_e2e.py`, ejecutando el archivo después de cada uno. Al terminar: `10 passed` en las estrechas y `22 passed` en las amplias, sin omitidas.
 
-### Provocar un fallo a propósito (para el taller)
+**8. Automatizar en GitHub Actions.** El contenido de `Integration-Testing` debe quedar como raíz del repositorio (GitHub solo lee `.github/workflows` de la raíz):
+```powershell
+git init -b main
+git add .
+git commit -m "Taller de pruebas de integración"
+git remote add origin https://github.com/<usuario>/<repositorio>.git
+git push -u origin main
+```
+En la pestaña **Actions** se ejecutan dos trabajos: **estrechas** (10 pruebas) y, si pasa, **amplias** (levanta los 3 contenedores y ejecuta 22 pruebas). Al terminar, descargar el artefacto `reporte-playwright` en la sección **Artifacts**: trae el reporte, las capturas, los videos y `docker-logs.txt`. Se publica siempre, también cuando una prueba falla. Opcionalmente, con la CLI de GitHub: `gh run watch` y `gh run download --name reporte-playwright`.
 
-- Cambie en `pagos/app.py` el código 500 por 503 → falla solo `test_pagos_api.py::...[error-500]` (el contrato de Pagos cambió), pero las pruebas de Pedidos y de la tienda siguen pasando porque Pedidos trata cualquier 5xx como `ERROR`.
-- Cambie en `pedidos/app.py` el estado `"ERROR"` por `"FALLIDO"` → fallan la estrecha y las amplias; el reporte muestra la diferencia y queda la traza.
-- Cambie `PAGOS_URL` en `docker-compose.yml` a un puerto incorrecto → todos los pedidos quedan en `ERROR` y fallan los casos aprobado y rechazado
+**9. Provocar fallos y analizarlos.** Aplicar los cambios uno a uno, reconstruir, ejecutar las pruebas y registrar qué falla y por qué. Restaurar con `git checkout -- <archivo>` antes del siguiente.
+
+| Cambio | Defecto que simula | Comandos |
+|---|---|---|
+| En `pagos/app.py`, `status_code=500` → `503` | El proveedor cambia su contrato sin avisar | `docker compose up -d --build --wait` y `cd pruebas; pytest` |
+| En `pedidos/app.py`, dentro de `cobrar()`, `"ERROR"` → `"FALLIDO"` (sin tocar el CHECK del esquema) | Pedidos y la base no coinciden en los estados válidos | `pytest pedidos/tests`, `docker compose up -d --build --wait` y `cd pruebas; pytest` |
+| En `docker-compose.yml`, `PAGOS_URL: http://pagos:8002` | Error de configuración del entorno | `docker compose up -d --wait`, `pytest pedidos/tests` (siguen pasando) y `cd pruebas; pytest` |
+
+**10. Comparar con las soluciones.** Las soluciones de referencia están en el repositorio del equipo: https://github.com/chris124v/Integration-Testing
+
+Al terminar: `docker compose down`.
